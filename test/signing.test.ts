@@ -1,0 +1,289 @@
+import { secp256k1 } from '@noble/curves/secp256k1.js'
+import { keccak_256 } from '@noble/hashes/sha3.js'
+import { describe, expect, it } from 'vitest'
+import type { Payment, TokenDomain } from '../src/index.js'
+import { signAuthorize, signCharge, signTransferWithAuthorization } from '../src/signing.js'
+
+// ================================================================
+//  Test fixtures
+// ================================================================
+
+// Well-known test private key (never use in production)
+const PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const
+
+// Corresponding address (from the above key)
+const PAYER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' as const
+
+const TOKEN_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const // USDC on Base
+const CONTRACT_ADDRESS = '0x1234567890123456789012345678901234567890' as const
+
+const TOKEN_DOMAIN: TokenDomain = {
+  name: 'USD Coin',
+  version: '2',
+  chainId: 8453,
+  verifyingContract: TOKEN_ADDRESS,
+}
+
+const PAYMENT: Payment = {
+  payer: PAYER,
+  payee: '0x2222222222222222222222222222222222222222',
+  token: TOKEN_ADDRESS,
+  maxAmount: '100000000',
+  authorizationExpiry: 9999999999,
+  refundExpiry: 9999999999 + 60 * 60 * 24 * 7,
+  feeBps: 0,
+  feeReceiver: '0x0000000000000000000000000000000000000000',
+}
+
+const NONCE = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const
+
+// ================================================================
+//  signTransferWithAuthorization
+// ================================================================
+
+describe('signTransferWithAuthorization', () => {
+  it('returns an object with v, r, s', () => {
+    const sig = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 50_000_000n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+
+    expect(sig.v).toSatisfy((v: number) => v === 27 || v === 28)
+    expect(sig.r).toMatch(/^0x[0-9a-f]{64}$/i)
+    expect(sig.s).toMatch(/^0x[0-9a-f]{64}$/i)
+  })
+
+  it('produces a verifiable secp256k1 signature', () => {
+    const sig = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 50_000_000n,
+      validAfter: 0n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+
+    // Re-derive the public key and verify using secp256k1.verify
+    function hexToBytes(hex: string) {
+      const h = hex.startsWith('0x') ? hex.slice(2) : hex
+      const out = new Uint8Array(h.length / 2)
+      for (let i = 0; i < h.length; i += 2) out[i >> 1] = Number.parseInt(h.slice(i, i + 2), 16) // base-16
+      return out
+    }
+    function abiAddress(addr: string) {
+      const out = new Uint8Array(32)
+      out.set(hexToBytes(addr), 12)
+      return out
+    }
+    function abiUint256(v: bigint) {
+      const out = new Uint8Array(32)
+      let x = v
+      for (let i = 31; i >= 0; i--) {
+        out[i] = Number(x & 0xffn)
+        x >>= 8n
+      }
+      return out
+    }
+    function concat(...parts: Uint8Array[]) {
+      let len = 0
+      for (const p of parts) len += p.length
+      const out = new Uint8Array(len)
+      let off = 0
+      for (const p of parts) {
+        out.set(p, off)
+        off += p.length
+      }
+      return out
+    }
+
+    const domainTypehash = keccak_256(
+      new TextEncoder().encode(
+        'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)',
+      ),
+    )
+    const transferTypehash = keccak_256(
+      new TextEncoder().encode(
+        'TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)',
+      ),
+    )
+    const domainSeparator = keccak_256(
+      concat(
+        domainTypehash,
+        keccak_256(new TextEncoder().encode('USD Coin')),
+        keccak_256(new TextEncoder().encode('2')),
+        abiUint256(8453n),
+        abiAddress(TOKEN_ADDRESS),
+      ),
+    )
+    const structHash = keccak_256(
+      concat(
+        transferTypehash,
+        abiAddress(PAYER),
+        abiAddress(CONTRACT_ADDRESS),
+        abiUint256(50_000_000n),
+        abiUint256(0n),
+        abiUint256(9999999999n),
+        hexToBytes(NONCE),
+      ),
+    )
+    const digest = keccak_256(concat(new Uint8Array([0x19, 0x01]), domainSeparator, structHash))
+
+    // Build compact sig (r+s, 64 bytes) for secp256k1.verify
+    const compactSig = new Uint8Array(64)
+    compactSig.set(hexToBytes(sig.r), 0) // r occupies bytes 0-31
+    compactSig.set(hexToBytes(sig.s), 32) // s occupies bytes 32-63
+
+    const pubKey = secp256k1.getPublicKey(hexToBytes(PRIVATE_KEY))
+    const isValid = secp256k1.verify(compactSig, digest, pubKey, { prehash: false, lowS: true })
+
+    expect(isValid).toBe(true)
+  })
+
+  it('validAfter defaults to 0 when omitted', () => {
+    const withDefault = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+    const withExplicit = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validAfter: 0n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+
+    expect(withDefault).toEqual(withExplicit)
+  })
+
+  it('produces different signatures for different nonces', () => {
+    const nonce2 = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const
+    const sig1 = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+    const sig2 = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validBefore: 9999999999n,
+      nonce: nonce2,
+    })
+
+    expect(sig1.r).not.toBe(sig2.r)
+  })
+
+  it('accepts a Uint8Array private key', () => {
+    const hexKey = PRIVATE_KEY.slice(2)
+    const keyBytes = new Uint8Array(hexKey.length / 2)
+    for (let i = 0; i < hexKey.length; i += 2)
+      keyBytes[i >> 1] = Number.parseInt(hexKey.slice(i, i + 2), 16)
+
+    const sigHex = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+    const sigBytes = signTransferWithAuthorization(keyBytes, TOKEN_DOMAIN, {
+      from: PAYER,
+      to: CONTRACT_ADDRESS,
+      value: 1n,
+      validBefore: 9999999999n,
+      nonce: NONCE,
+    })
+
+    expect(sigHex).toEqual(sigBytes)
+  })
+})
+
+// ================================================================
+//  signAuthorize / signCharge
+// ================================================================
+
+describe('signAuthorize', () => {
+  it('returns a valid signature using payment.authorizationExpiry as default validBefore', () => {
+    const sig = signAuthorize({
+      privateKey: PRIVATE_KEY,
+      payment: PAYMENT,
+      amount: 50_000_000n,
+      nonce: NONCE,
+      contractAddress: CONTRACT_ADDRESS,
+      tokenDomain: TOKEN_DOMAIN,
+    })
+
+    expect(sig.v).toSatisfy((v: number) => v === 27 || v === 28)
+    expect(sig.r).toMatch(/^0x[0-9a-f]{64}$/i)
+    expect(sig.s).toMatch(/^0x[0-9a-f]{64}$/i)
+  })
+
+  it('matches signTransferWithAuthorization with explicit params', () => {
+    const manual = signTransferWithAuthorization(PRIVATE_KEY, TOKEN_DOMAIN, {
+      from: PAYMENT.payer,
+      to: CONTRACT_ADDRESS,
+      value: 50_000_000n,
+      validAfter: 0n,
+      validBefore: BigInt(PAYMENT.authorizationExpiry),
+      nonce: NONCE,
+    })
+    const auto = signAuthorize({
+      privateKey: PRIVATE_KEY,
+      payment: PAYMENT,
+      amount: 50_000_000n,
+      nonce: NONCE,
+      contractAddress: CONTRACT_ADDRESS,
+      tokenDomain: TOKEN_DOMAIN,
+    })
+
+    expect(auto).toEqual(manual)
+  })
+})
+
+describe('signCharge', () => {
+  it('returns a valid signature', () => {
+    const chargeNonce =
+      '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' as const
+    const sig = signCharge({
+      privateKey: PRIVATE_KEY,
+      payment: PAYMENT,
+      amount: 25_000_000n,
+      nonce: chargeNonce,
+      contractAddress: CONTRACT_ADDRESS,
+      tokenDomain: TOKEN_DOMAIN,
+    })
+
+    expect(sig.v).toSatisfy((v: number) => v === 27 || v === 28)
+    expect(sig.r).toMatch(/^0x[0-9a-f]{64}$/i)
+  })
+
+  it('produces a different signature than signAuthorize for a different nonce', () => {
+    const authSig = signAuthorize({
+      privateKey: PRIVATE_KEY,
+      payment: PAYMENT,
+      amount: 50_000_000n,
+      nonce: NONCE,
+      contractAddress: CONTRACT_ADDRESS,
+      tokenDomain: TOKEN_DOMAIN,
+    })
+    const chargeSig = signCharge({
+      privateKey: PRIVATE_KEY,
+      payment: PAYMENT,
+      amount: 50_000_000n,
+      nonce: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+      contractAddress: CONTRACT_ADDRESS,
+      tokenDomain: TOKEN_DOMAIN,
+    })
+
+    expect(authSig.r).not.toBe(chargeSig.r)
+  })
+})

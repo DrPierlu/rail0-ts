@@ -1,0 +1,75 @@
+{
+  "name": "@rail0/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the RAIL0 stablecoin payment API",
+  "keywords": [
+    "rail0",
+    "stablecoin",
+    "payments",
+    "usdc",
+    "erc20",
+    "eip-712",
+    "erc-4337",
+    "web3",
+    "ethereum",
+    "base",
+    "sdk"
+  ],
+  "homepage": "https://github.com/rail0/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/rail0/sdk/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rail0/sdk.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "typecheck": "tsc --noEmit && tsc -p examples/tsconfig.json && tsc -p test/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate": "tsx gen/generate.ts",
+    "lint": "biome check src gen examples test",
+    "lint:fix": "biome check --write src gen examples test",
+    "format": "biome format --write src gen examples test",
+    "release": "pnpm update && pnpm format && pnpm lint:fix && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.19.19",
+    "openapi-typescript": "^7.13.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0"
+  }
+}
