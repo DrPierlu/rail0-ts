@@ -152,6 +152,8 @@ export interface SignTransferParams {
 /**
  * Parameters for signing an authorize or charge call.
  * Obtain the nonce from client.payments.authorizeNonce() or chargeNonce().
+ * The contract hardcodes validAfter=0 and validBefore=payment.authorizationExpiry;
+ * these are not configurable by the caller.
  */
 export interface SignPaymentParams {
   /** Payer's private key (0x-prefixed hex or raw Uint8Array). */
@@ -160,18 +162,14 @@ export interface SignPaymentParams {
   /** Amount to pull from the payer, in token base units. */
   amount: bigint
   /**
-   * Nonce from client.payments.authorizeNonce(paymentId, payer)
-   * or client.payments.chargeNonce(paymentId, payer).
+   * Nonce from client.payments.authorizeNonce(paymentId, configHash)
+   * or client.payments.chargeNonce(paymentId, configHash).
    */
   nonce: Bytes32
   /** Deployed RAIL0 contract address — receives the escrowed funds. */
   contractAddress: Address
   /** EIP-712 domain of the payment token (name, version from the token contract). */
   tokenDomain: TokenDomain
-  /** Earliest block timestamp the sig is valid (default: 0 = immediately). */
-  validAfter?: bigint
-  /** Latest block timestamp the sig is valid (default: payment.authorizationExpiry). */
-  validBefore?: bigint
 }
 
 // ================================================================
@@ -227,7 +225,8 @@ export function signTransferWithAuthorization(
  * Sign the EIP-3009 payload required by an authorize call.
  *
  * ```ts
- * const { nonce } = await client.payments.authorizeNonce(paymentId, payment.payer)
+ * const { hash: configHash } = await client.payments.hash(payment)
+ * const { nonce } = await client.payments.authorizeNonce(paymentId, configHash)
  * const sig = signAuthorize({ privateKey, payment, amount: 50_000_000n, nonce, contractAddress, tokenDomain })
  * await client.payments.authorize(paymentId, { payment, amount: '50000000', ...sig })
  * ```
@@ -237,8 +236,8 @@ export function signAuthorize(params: SignPaymentParams): Eip3009Signature {
     from: params.payment.payer,
     to: params.contractAddress,
     value: params.amount,
-    validAfter: params.validAfter ?? 0n,
-    validBefore: params.validBefore ?? BigInt(params.payment.authorizationExpiry),
+    validAfter: 0n,
+    validBefore: BigInt(params.payment.authorizationExpiry),
     nonce: params.nonce,
   })
 }
@@ -257,8 +256,8 @@ export function signCharge(params: SignPaymentParams): Eip3009Signature {
     from: params.payment.payer,
     to: params.contractAddress,
     value: params.amount,
-    validAfter: params.validAfter ?? 0n,
-    validBefore: params.validBefore ?? BigInt(params.payment.authorizationExpiry),
+    validAfter: 0n,
+    validBefore: BigInt(params.payment.authorizationExpiry),
     nonce: params.nonce,
   })
 }

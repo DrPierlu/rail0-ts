@@ -148,7 +148,7 @@ export interface paths {
         };
         /**
          * Authorize nonce
-         * @description Returns the EIP-3009 nonce the payer must include in the transferWithAuthorization signature for an authorize call.
+         * @description Computes the EIP-3009 nonce the payer must use when signing a transferWithAuthorization for an authorize call. The nonce is derived from paymentId and the configHash (EIP-712 digest of the Payment configuration).
          */
         get: operations["authorizeNonce"];
         put?: never;
@@ -168,7 +168,7 @@ export interface paths {
         };
         /**
          * Charge nonce
-         * @description Returns the EIP-3009 nonce the payer must include in the transferWithAuthorization signature for a charge call.
+         * @description Computes the EIP-3009 nonce the payer must use when signing a transferWithAuthorization for a charge call. The nonce is derived from paymentId and the configHash (EIP-712 digest of the Payment configuration).
          */
         get: operations["chargeNonce"];
         put?: never;
@@ -560,8 +560,8 @@ export interface operations {
     authorizeNonce: {
         parameters: {
             query: {
-                /** @description Payer address */
-                payer: components["schemas"]["Address"];
+                /** @description EIP-712 digest of the Payment configuration (from POST /payments/hash) */
+                configHash: components["schemas"]["Bytes32"];
             };
             header?: never;
             path: {
@@ -588,8 +588,8 @@ export interface operations {
     chargeNonce: {
         parameters: {
             query: {
-                /** @description Payer address */
-                payer: components["schemas"]["Address"];
+                /** @description EIP-712 digest of the Payment configuration (from POST /payments/hash) */
+                configHash: components["schemas"]["Bytes32"];
             };
             header?: never;
             path: {

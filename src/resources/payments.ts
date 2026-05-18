@@ -1,6 +1,5 @@
 import type { HttpClient } from '../core/http.js'
 import type {
-  Address,
   AuthorizeParams,
   Bytes32,
   CaptureParams,
@@ -53,14 +52,16 @@ export class PaymentsResource {
     return this.http.post(`/payments/${paymentId}/refund`, params)
   }
 
-  /** Returns the EIP-3009 nonce the payer must use when signing an authorize call. */
-  authorizeNonce(paymentId: Bytes32, payer: Address): Promise<NonceResponse> {
-    return this.http.get(`/payments/${paymentId}/authorize-nonce?payer=${payer}`)
+  /** Returns the EIP-3009 nonce the payer must use when signing an authorize call.
+   *  configHash is the EIP-712 digest of the Payment configuration (from payments.hash()). */
+  authorizeNonce(paymentId: Bytes32, configHash: Bytes32): Promise<NonceResponse> {
+    return this.http.get(`/payments/${paymentId}/authorize-nonce?configHash=${configHash}`)
   }
 
-  /** Returns the EIP-3009 nonce the payer must use when signing a charge call. */
-  chargeNonce(paymentId: Bytes32, payer: Address): Promise<NonceResponse> {
-    return this.http.get(`/payments/${paymentId}/charge-nonce?payer=${payer}`)
+  /** Returns the EIP-3009 nonce the payer must use when signing a charge call.
+   *  configHash is the EIP-712 digest of the Payment configuration (from payments.hash()). */
+  chargeNonce(paymentId: Bytes32, configHash: Bytes32): Promise<NonceResponse> {
+    return this.http.get(`/payments/${paymentId}/charge-nonce?configHash=${configHash}`)
   }
 
   /** Compute the canonical EIP-712 digest of a Payment configuration. */
