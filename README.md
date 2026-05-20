@@ -31,8 +31,7 @@ const payment: Payment = {
   payer:               '0xBuyer...',
   payee:               '0xMerchant...',
   token:               '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
-  maxAmount:           '100000000', // 100 USDC (6 decimals)
-  preApprovalExpiry:   now + 3600,          // 1 h to authorize
+  amount:              '100000000', // 100 USDC (6 decimals)
   authorizationExpiry: now + 3600 * 24,     // 24 h to capture
   refundExpiry:        now + 3600 * 24 * 7, // 7-day refund window
   feeBps:              50,                  // 0.5 % to feeReceiver
@@ -376,7 +375,7 @@ Common error codes returned by the contract:
 | `AuthorizationExpired` | `authorizationExpiry` is in the past (capture) |
 | `AuthorizationNotExpired` | `authorizationExpiry` has not passed yet (reclaim) |
 | `RefundExpired` | `refundExpiry` is in the past |
-| `InvalidAmount` | `amount` is 0 or exceeds `maxAmount` |
+| `InvalidAmount` | `amount` is 0 |
 | `InvalidCaptureAmount` | `amount` exceeds `capturableAmount` |
 | `InvalidRefundAmount` | `amount` exceeds `refundableAmount` |
 | `TokenNotAccepted` | token is not in this deployment's allowlist |
@@ -432,8 +431,8 @@ The test suite includes unit tests and integration tests. All HTTP calls are moc
 ### Regenerate types after an API change
 
 ```bash
-# 1. Drop the updated spec into gen/
-cp path/to/new-openapi.json gen/openapi.json
+# 1. Update the schema in rail0-api (sibling repo),
+#    or set RAIL0_SCHEMA_PATH to point to a local file.
 
 # 2. Regenerate src/api.ts
 pnpm generate
@@ -457,10 +456,9 @@ Runs in sequence: `pnpm update` → `format` → `lint:fix` → `typecheck` → 
 ## Project structure
 
 ```text
-gen/              OpenAPI spec + generation pipeline
+gen/              Generation pipeline (schema from rail0-api)
 
-  openapi.json    source of truth for the API surface
-  generate.ts     regenerates src/api.ts from the spec
+  generate.ts     regenerates src/api.ts from the schema
   README.md
 
 src/
