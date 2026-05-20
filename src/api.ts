@@ -10,7 +10,7 @@ export interface paths {
         put?: never;
         /**
          * Create a payment intent
-         * @description Called by the payer. Creates a payment record and returns the EIP-712 typed-data payload for the payer to sign immediately. The `signingPayload` contains `domain`, `types`, and `message` in standard EIP-712 format: wallet users pass it verbatim to `eth_signTypedData_v4`; backends or SDKs with direct key access compute the same hash with any EIP-712 library and sign it with secp256k1 — the result is identical. The `mode` field determines the flow: `authorize` places funds in escrow for later capture; `charge` is a one-shot authorize+capture with no escrow window. The nonce in the `signingPayload` is derived using the corresponding prefix (`RAIL0.AUTHORIZE` or `RAIL0.CHARGE`), so a signature for one mode cannot be reused for the other. The signed components (v, r, s) must then be submitted to `PUT /payments/{paymentId}/signature`, after which the payee triggers on-chain submission via `POST /payments/{paymentId}/authorize` or `POST /payments/{paymentId}/charge`.
+         * @description Called by the payer. Creates a payment record and returns the EIP-712 typed-data payload for the payer to sign immediately. The `signingPayload` contains `domain`, `types`, and `message` in standard EIP-712 format: wallet users pass it verbatim to `eth_signTypedData_v4`; backends or SDKs with direct key access compute the same hash with any EIP-712 library and sign it with secp256k1 — the result is identical. The `mode` field determines the flow: `authorize` places funds in escrow for later capture; `charge` is a one-shot authorize+capture with no escrow window. The nonce in the `signingPayload` is derived using the corresponding prefix (`RAIL0.AUTHORIZE` or `RAIL0.CHARGE`), so a signature for one mode cannot be reused for the other. The resulting signature must then be submitted to `PUT /payments/{paymentId}/sign`, after which the payee triggers on-chain submission via `POST /payments/{paymentId}/authorize` or `POST /payments/{paymentId}/charge`.
          */
         post: operations["createPayment"];
         delete?: never;
@@ -29,7 +29,7 @@ export interface paths {
         get?: never;
         /**
          * Submit the payer's authorization signature
-         * @description Called by the payer after signing the `signingPayload` returned by `POST /payments`. Stores the EIP-3009 signature (v, r, s) server-side so that the payee can later trigger on-chain submission via `POST /payments/{paymentId}/authorize` without needing any input from the payer. Idempotent: re-submitting the same signature for the same payment is accepted.
+         * @description Called by the payer after signing the `signingPayload` returned by `POST /payments`. Stores the EIP-3009 signature server-side so that the payee can later trigger on-chain submission via `POST /payments/{paymentId}/authorize` without needing any input from the payer. Idempotent: re-submitting the same signature for the same payment is accepted.
          */
         put: operations["sign"];
         post?: never;
@@ -110,7 +110,7 @@ export interface paths {
         put?: never;
         /**
          * Submit the authorization transaction on-chain
-         * @description Called by the payee to relay the payer's previously stored EIP-3009 signature to the RAIL0 `authorize()` function. Funds are pulled from the payer into escrow. The payee is the on-chain transaction sender and pays gas. No request body is required: the signature was already deposited by the payer via `PUT /payments/{paymentId}/signature`.
+         * @description Called by the payee to relay the payer's previously stored EIP-3009 signature to the RAIL0 `authorize()` function. Funds are pulled from the payer into escrow. The payee is the on-chain transaction sender and pays gas. No request body is required: the signature was already deposited by the payer via `PUT /payments/{paymentId}/sign`.
          */
         post: operations["authorizePayment"];
         delete?: never;
@@ -130,7 +130,7 @@ export interface paths {
         put?: never;
         /**
          * Submit the charge transaction on-chain
-         * @description Called by the payee to relay the payer's EIP-3009 signature (mode=charge) to the RAIL0 `charge()` function. Funds are pulled from the payer and immediately distributed to payee and feeReceiver — no escrow window. The payee is the on-chain transaction sender and pays gas. The signature must have been deposited via `PUT /payments/{paymentId}/signature` with a payment created with `mode=charge`.
+         * @description Called by the payee to relay the payer's EIP-3009 signature (mode=charge) to the RAIL0 `charge()` function. Funds are pulled from the payer and immediately distributed to payee and feeReceiver — no escrow window. The payee is the on-chain transaction sender and pays gas. The signature must have been deposited via `PUT /payments/{paymentId}/sign` with a payment created with `mode=charge`.
          */
         post: operations["chargePayment"];
         delete?: never;
@@ -239,6 +239,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/merchants/{merchantId}/payment-methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List accepted payment methods for a merchant
+         * @description Returns all active wallet configurations for the given merchant, enriched with chain and token details. Called by the buyer's frontend before `POST /payments` to present available payment options. The `isDefault` flag identifies the pre-selected method; the buyer may confirm it or choose another. The response is stable and safe to cache client-side — it changes only when the merchant updates their configuration.
+         */
+        get: operations["getPaymentMethods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/payments/{paymentId}/refund/submit": {
         parameters: {
             query?: never;
@@ -308,9 +328,18 @@ export interface components {
             /** @description Recipient of the fee on each capture. Use the zero address (0x0000…0000) when feeBps is 0. */
             feeReceiver: components["schemas"]["Address"];
         };
-        /** @description Parameters needed to create a payment intent. The API generates a unique `paymentId` and constructs the EIP-712 signing payload. The exact amount is set via `payment.amount`. */
+        /** @description Buyer-supplied payment parameters. Policy fields (amount, authorizationExpiry, refundExpiry, feeBps, feeReceiver) are fixed API configuration and are applied server-side — they are not accepted in input but appear in CreatePaymentResponse.payment. */
+        PaymentInput: {
+            /** @description Buyer address. Funds are pulled from this address. */
+            payer: components["schemas"]["Address"];
+            /** @description Merchant wallet address (walletAddress from GET /merchants/{id}/payment-methods). */
+            payee: components["schemas"]["Address"];
+            /** @description ERC-20 token address (tokenAddress from GET /merchants/{id}/payment-methods). */
+            token: components["schemas"]["Address"];
+        };
+        /** @description Parameters needed to create a payment intent. The API generates a unique `paymentId`, applies its fixed policy config, and constructs the EIP-712 signing payload. */
         CreatePaymentRequest: {
-            payment: components["schemas"]["PaymentConfig"];
+            payment: components["schemas"]["PaymentInput"];
             /**
              * @description EVM chain ID of the target network.
              * @example 84532
@@ -358,7 +387,7 @@ export interface components {
             /** @description keccak256(NONCE_PREFIX, paymentId, configHash) where NONCE_PREFIX is `RAIL0.AUTHORIZE` for mode=authorize and `RAIL0.CHARGE` for mode=charge. Binds the signature to the exact Payment configuration and operation type. */
             nonce: components["schemas"]["Bytes32"];
         };
-        /** @description EIP-712 typed-data structure that the payer must sign. The `domain`, `types`, and `message` fields follow the EIP-712 standard. Signing options: (a) wallet users pass this object verbatim to `eth_signTypedData_v4`; (b) backends with direct key access compute `keccak256('\x19\x01' || domainSeparator || hashStruct(message))` with any EIP-712 library and sign with secp256k1. Both approaches produce the same (v, r, s) components to submit to `PUT /payments/{paymentId}/signature`. */
+        /** @description EIP-712 typed-data structure that the payer must sign. The `domain`, `types`, and `message` fields follow the EIP-712 standard. Signing options: (a) wallet users pass this object verbatim to `eth_signTypedData_v4`; (b) backends with direct key access compute `keccak256('\x19\x01' || domainSeparator || hashStruct(message))` with any EIP-712 library and sign with secp256k1. Both approaches produce the same 65-byte signature to submit to `PUT /payments/{paymentId}/sign`. */
         SigningPayload: {
             domain: components["schemas"]["EIP712Domain"];
             /** @description EIP-712 type definitions. */
@@ -541,18 +570,13 @@ export interface components {
             /** @description Remaining refundable balance after this refund. */
             refundableAmount: components["schemas"]["Uint256String"];
         };
-        /** @description EIP-712 signature over the `signingPayload` returned by `POST /payments`. The payer may produce this with `eth_signTypedData_v4` (browser wallet) or with any EIP-712 library that has direct access to the private key — the on-chain verification only checks the recovered address. */
+        /** @description EIP-712 signature over the `signingPayload` returned by `POST /payments`. Browser wallets return this directly from `eth_signTypedData_v4`; backends produce it with any EIP-712 library. The on-chain verification only checks the recovered address. */
         PayerSignatureRequest: {
             /**
-             * @description Signature recovery byte (27 or 28).
-             * @example 28
-             * @enum {integer}
+             * @description 65-byte secp256k1 signature in hex (0x-prefixed, 132 chars): r (32 bytes) + s (32 bytes) + v (1 byte). This is the format returned directly by `eth_signTypedData_v4` and all standard Ethereum signing libraries.
+             * @example 0xd693b532a80fed6392b428604171fb1c5e7a2513e9e785424e8b7cbe6d7f4a4b2b9b7b3f4c2d1e0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f61b
              */
-            v: 27 | 28;
-            /** @description Signature r component. */
-            r: components["schemas"]["Bytes32"];
-            /** @description Signature s component. */
-            s: components["schemas"]["Bytes32"];
+            signature: string;
         };
         PayerSignatureResponse: {
             /** @description Payment identifier. */
@@ -578,6 +602,48 @@ export interface components {
              * @example 1780000000
              */
             authorizationExpiry?: number;
+        };
+        /** @description A single accepted payment method for a merchant: one (chain, token, wallet) combination. */
+        PaymentMethod: {
+            /**
+             * @description MERCHANT_WALLETS row identifier.
+             * @example 1
+             */
+            id: number;
+            /**
+             * @description TOKENS row identifier (tokens.id).
+             * @example 7
+             */
+            tokenId: number;
+            /**
+             * @description EVM chain ID, derived from the token record.
+             * @example 8453
+             */
+            chainId: number;
+            /**
+             * @description Human-readable chain name.
+             * @example Base
+             */
+            chainName: string;
+            /** @description ERC-20 token contract address on the chain. */
+            tokenAddress: components["schemas"]["Address"];
+            /**
+             * @description Token ticker symbol.
+             * @example USDC
+             */
+            tokenSymbol: string;
+            /**
+             * @description Token decimal places.
+             * @example 6
+             */
+            tokenDecimals: number;
+            /** @description Merchant wallet address to use as `payee` in PaymentConfig. */
+            walletAddress: components["schemas"]["Address"];
+            /**
+             * @description True for the merchant's pre-selected payment method.
+             * @example true
+             */
+            isDefault: boolean;
         };
         Error: {
             /**
@@ -613,7 +679,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Payment intent created. Sign the returned `signingPayload` and submit to `PUT /payments/{paymentId}/signature`. */
+            /** @description Payment intent created. Sign the returned `signingPayload` and submit to `PUT /payments/{paymentId}/sign`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1121,6 +1187,38 @@ export interface operations {
             };
             /** @description Amount is zero, exceeds refundable balance, or refundExpiry has already passed. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getPaymentMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Merchant UUID. */
+                merchantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Array of accepted payment methods, ordered with the default first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentMethod"][];
+                };
+            };
+            /** @description Merchant not found or has no active payment methods. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

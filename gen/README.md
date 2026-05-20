@@ -1,6 +1,6 @@
 # Code Generation
 
-This folder contains the generation pipeline for the RAIL0 SDK. The source of truth for the API surface is `gen/openapi.json`. Running the pipeline regenerates the TypeScript types in `src/api.ts`, which propagates changes through the entire SDK.
+This folder contains the generation pipeline for the RAIL0 SDK. The source of truth for the API surface is [`rail0-api/doc/openapi.json`](../../rail0-api/doc/openapi.json) (a sibling repo). Running the pipeline regenerates the TypeScript types in `src/api.ts`, which propagates changes through the entire SDK.
 
 ## Run
 
@@ -8,9 +8,15 @@ This folder contains the generation pipeline for the RAIL0 SDK. The source of tr
 pnpm generate
 ```
 
+## Schema source (in priority order)
+
+1. `RAIL0_SCHEMA_URL` env var — remote URL (future: published with each release)
+2. `RAIL0_SCHEMA_PATH` env var — absolute path to a local `openapi.json`
+3. Default: `../rail0-api/doc/openapi.json` (sibling repo on the local filesystem)
+
 ## Workflow when the API changes
 
-1. Replace `gen/openapi.json` with the updated spec.
+1. Update `rail0-api/doc/openapi.json` (or point `RAIL0_SCHEMA_PATH` to a local file).
 2. Run `pnpm generate` — rewrites `src/api.ts`.
 3. Run `pnpm typecheck` — TypeScript reports every broken reference across the SDK.
 4. Fix the type aliases in `src/resources/types.ts` if any schema names changed.
@@ -22,7 +28,6 @@ Steps 4 and 5 are guided by the compiler: no manual diffing of the spec is neede
 
 | File | Purpose |
 |------|---------|
-| `openapi.json` | OpenAPI 3.1 spec — the single source of truth for the API surface |
 | `generate.ts` | Generation pipeline — run with `pnpm generate` |
 
 ## How `generate.ts` works
@@ -32,7 +37,7 @@ The script is a sequential pipeline. Each step is an `async` function; new steps
 ### Step 1 — Parse the schema
 
 ```
-gen/openapi.json  →  openapi-typescript (AST)
+openapi.json  →  openapi-typescript (AST)
 ```
 
 [`openapi-typescript`](https://github.com/openapi-ts/openapi-typescript) reads the spec and produces a TypeScript AST. It handles OpenAPI 3.1 constructs including `allOf`, `oneOf`, `$ref`, and inline schemas.
