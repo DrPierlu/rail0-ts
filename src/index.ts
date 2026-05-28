@@ -1,4 +1,11 @@
 export { Rail0Client } from './client.js'
+export { generatePaymentId } from './utils.js'
+export { IndexerClient } from './indexer.js'
+export type {
+  ConfirmEventType,
+  ConfirmPayload,
+  IndexerClientOptions,
+} from './indexer.js'
 
 export {
   signTransferWithAuthorization,
