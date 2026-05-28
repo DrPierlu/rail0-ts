@@ -1,5 +1,4 @@
 export { Rail0Client } from './client.js'
-export { generatePaymentId } from './utils.js'
 
 export {
   signTransferWithAuthorization,
